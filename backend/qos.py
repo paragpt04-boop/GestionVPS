@@ -36,7 +36,8 @@ def apply(rows):
         current = run('tc','qdisc','show','dev',dev)
         if f'qdisc htb {handle}:' not in current:
             # Refuse to overwrite an unrelated root queue.
-            if ' root ' in current and 'qdisc noqueue ' not in current:
+            default_queue = 'qdisc noqueue ' in current or (dev == 'ifb-wg0' and 'qdisc fq_codel 0:' in current)
+            if ' root ' in current and not default_queue:
                 raise RuntimeError('Unexpected root qdisc; manual review required')
             run('tc','qdisc','replace','dev',dev,'root','handle',handle+':','htb','default','999')
         run('tc','class','replace','dev',dev,'parent',handle+':','classid',handle+':999','htb','rate','128kbit','ceil','128kbit')

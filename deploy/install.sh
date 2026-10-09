@@ -8,7 +8,7 @@ id gestionvps >/dev/null 2>&1 || useradd --system --home /nonexistent --shell /u
 install -d -m 700 /var/lib/gestionvps-agent
 install -d -m 700 -o gestionvps -g gestionvps /var/lib/gestionvps-api
 python3 -m venv /opt/gestionvps/venv
-/opt/gestionvps/venv/bin/pip install -r /opt/gestionvps/backend/requirements.txt
+/opt/gestionvps/venv/bin/pip install -r /opt/gestionvps/backend/requirements.lock
 python3 /opt/gestionvps/backend/bootstrap.py
 chown root:gestionvps /etc/gestionvps /etc/gestionvps/server.key /etc/gestionvps/server.crt
 chmod 750 /etc/gestionvps

@@ -44,10 +44,20 @@ def apply(rows):
         n = str(int(ip.split('.')[-1]))
         for dev, handle, direction, rate in [('wg0','1','dst',down),('ifb-wg0','2','src',up)]:
             run('tc','class','replace','dev',dev,'parent',handle+':','classid',handle+':'+n,'htb','rate',f'{rate}mbit','ceil',f'{rate}mbit')
-            run('tc','filter','replace','dev',dev,'parent',handle+':','protocol','ip','prio',n,'handle','800::800','u32','match','ip',direction,ip+'/32','flowid',handle+':'+n)
+            current=run('tc','filter','show','dev',dev,'parent',handle+':','protocol','ip','pref',n)
+            match=f'match {int(ipaddress.ip_address(ip)):08x}/ffffffff at '+('16' if direction=='dst' else '12')
+            if match not in current or f'flowid {handle}:{n} ' not in current:
+                if current.strip():
+                    run('tc','filter','del','dev',dev,'parent',handle+':','protocol','ip','pref',n)
+                # u32 allocates a distinct hash table per priority. Never reuse
+                # 800::800 for multiple clients: that silently misclassifies them.
+                run('tc','filter','add','dev',dev,'parent',handle+':','protocol','ip','prio',n,'u32','match','ip',direction,ip+'/32','flowid',handle+':'+n)
     if 'ingress ffff:' not in run('tc','qdisc','show','dev','wg0'):
         run('tc','qdisc','add','dev','wg0','handle','ffff:','ingress')
-    run('tc','filter','replace','dev','wg0','parent','ffff:','protocol','ip','prio','10','handle','800::800','u32','match','u32','0','0','action','mirred','egress','redirect','dev','ifb-wg0')
+    ingress=run('tc','filter','show','dev','wg0','parent','ffff:','protocol','ip','pref','10')
+    if 'device ifb-wg0' not in ingress:
+        if ingress.strip():run('tc','filter','del','dev','wg0','parent','ffff:','protocol','ip','pref','10')
+        run('tc','filter','add','dev','wg0','parent','ffff:','protocol','ip','prio','10','u32','match','u32','0','0','action','mirred','egress','redirect','dev','ifb-wg0')
 
 if __name__ == '__main__':
     apply(parse(pathlib.Path('/etc/wireguard/qos-clientes.txt').read_text()))

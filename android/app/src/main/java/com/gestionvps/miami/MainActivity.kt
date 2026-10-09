@@ -65,6 +65,9 @@ fun Panel(model: PanelModel = viewModel()) {
     var profile by remember { mutableStateOf<JSONObject?>(null) }
     var exportError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    LaunchedEffect(model.logged) {
+        if (!model.logged) { profile = null; confirmation = null; editing = null; create = false }
+    }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) {
             runCatching {
@@ -232,7 +235,17 @@ fun SystemScreen(data:JSONObject,diagnostic:String) {
         item{Text("Sistema",fontSize=28.sp,fontWeight=FontWeight.Bold);Text("Diagnóstico de solo lectura",color=Muted)}
         item{Metric("Tiempo encendido","${(data.optDouble("uptime_seconds")/3600).toInt()} h",Modifier.fillMaxWidth())}
         item{Metric("Carga media",String.format(Locale.US,"%.2f",data.optDouble("load")),Modifier.fillMaxWidth())}
-        item{Card{Column(Modifier.padding(16.dp)){Text("Servicios",fontWeight=FontWeight.Bold);val services=data.optJSONObject("services");services?.keys()?.forEach{key->Text("$key · ${services.optString(key)}",fontSize=12.sp,color=Muted,modifier=Modifier.padding(top=8.dp))}}}
+        item {
+            Card {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Servicios", fontWeight=FontWeight.Bold)
+                    val services=data.optJSONObject("services")
+                    services?.keys()?.forEach { key ->
+                        Text("$key · ${services.optString(key)}",fontSize=12.sp,color=Muted,modifier=Modifier.padding(top=8.dp))
+                    }
+                }
+            }
+        }
         val diag=runCatching{JSONObject(diagnostic)}.getOrNull()
         diag?.keys()?.forEach{key->item{Card{Column(Modifier.padding(16.dp)){Text(key,fontWeight=FontWeight.SemiBold,color=Mint);Text(diag.optString(key),fontSize=10.sp,lineHeight=15.sp,color=Muted)}}}}
         item{Text("Las conexiones se estiman por handshake. Una alerta de servicio requiere revisión; este panel no reinicia SSH ni el VPS.",color=Muted,fontSize=12.sp)}

@@ -64,17 +64,32 @@ def initialize():
     with db() as c:
         c.executescript('''
         CREATE TABLE IF NOT EXISTS clients(
-          id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-          ip TEXT NOT NULL UNIQUE, public_key TEXT NOT NULL UNIQUE,
+          id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE,
+          ip TEXT NOT NULL, public_key TEXT NOT NULL UNIQUE,
           profile TEXT NOT NULL, down INTEGER NOT NULL, up INTEGER NOT NULL,
           suspended INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,
           rx INTEGER NOT NULL DEFAULT 0, tx INTEGER NOT NULL DEFAULT 0,
           total_rx INTEGER NOT NULL DEFAULT 0, total_tx INTEGER NOT NULL DEFAULT 0,
-          boot TEXT NOT NULL DEFAULT '', handshake INTEGER NOT NULL DEFAULT 0);
+          boot TEXT NOT NULL DEFAULT '', handshake INTEGER NOT NULL DEFAULT 0,
+          peer_options TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS traffic(day TEXT,client_id TEXT,rx INTEGER NOT NULL,tx INTEGER NOT NULL,PRIMARY KEY(day,client_id));
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,action TEXT NOT NULL,client_id TEXT);
-        PRAGMA user_version=1;
         ''')
+        # Upgrade the initial pilot schema without losing traffic or tombstones.
+        columns=[r[1] for r in c.execute('PRAGMA table_info(clients)')]
+        if 'peer_options' not in columns:
+            c.execute("ALTER TABLE clients ADD COLUMN peer_options TEXT NOT NULL DEFAULT ''")
+        sql=c.execute("SELECT sql FROM sqlite_master WHERE name='clients'").fetchone()[0]
+        if 'name TEXT NOT NULL UNIQUE' in sql:
+            replacement=sql.replace('CREATE TABLE clients','CREATE TABLE clients_v2',1).replace('name TEXT NOT NULL UNIQUE','name TEXT NOT NULL').replace('ip TEXT NOT NULL UNIQUE','ip TEXT NOT NULL')
+            c.execute(replacement)
+            c.execute('INSERT INTO clients_v2 SELECT * FROM clients')
+            c.execute('DROP TABLE clients');c.execute('ALTER TABLE clients_v2 RENAME TO clients')
+        c.execute('CREATE UNIQUE INDEX IF NOT EXISTS live_names ON clients(name COLLATE NOCASE) WHERE deleted=0')
+        c.execute('CREATE UNIQUE INDEX IF NOT EXISTS live_ips ON clients(ip) WHERE deleted=0')
+        for b in blocks(WG.read_text())[1:]:
+            c.execute("UPDATE clients SET peer_options=? WHERE public_key=? AND peer_options=''",(b.strip(),fields(b).get('PublicKey')))
+        c.execute('PRAGMA user_version=2')
     recover()
     with db() as c:
         if c.execute('SELECT count(*) FROM clients').fetchone()[0]: return
@@ -91,8 +106,8 @@ def initialize():
             profile=profiles.get(ip)
             name=profile.stem if profile else 'cliente-'+ip.split('.')[-1]
             down,up=rates.get(ip,(2,1))
-            c.execute('INSERT INTO clients(id,name,ip,public_key,profile,down,up) VALUES(?,?,?,?,?,?,?)',
-                      (str(uuid.uuid4()),name,ip,f['PublicKey'],str(profile) if profile else '',down,up))
+            c.execute('INSERT INTO clients(id,name,ip,public_key,profile,down,up,peer_options) VALUES(?,?,?,?,?,?,?,?)',
+                      (str(uuid.uuid4()),name,ip,f['PublicKey'],str(profile) if profile else '',down,up,block.strip()))
         audit(c,'import_existing')
 
 def recover():
@@ -148,10 +163,12 @@ def mutate(op, data):
         profile=None; new_profile=None
         if op in ('create','update'):
             name,down,up=validate_client(data)
-            if c.execute('SELECT 1 FROM clients WHERE name=? COLLATE NOCASE AND id<>?',(name,identifier)).fetchone():
+            if c.execute('SELECT 1 FROM clients WHERE name=? COLLATE NOCASE AND id<>? AND deleted=0',(name,identifier)).fetchone():
                 raise ValueError('Ese nombre ya existe')
         if op=='create':
-            used={row[0] for row in c.execute('SELECT ip FROM clients')}
+            used={row[0] for row in c.execute('SELECT ip FROM clients WHERE deleted=0')}
+            for b in blocks(WG.read_text())[1:]:
+                used.update(ip.strip().split('/')[0] for ip in fields(b).get('AllowedIPs','').split(','))
             ip=next((f'10.5.0.{n}' for n in range(2,255) if f'10.5.0.{n}' not in used),None)
             if not ip: raise ValueError('No hay direcciones disponibles')
             private=command('wg','genkey'); key=command('wg','pubkey',input=private+'\n')
@@ -183,11 +200,13 @@ def mutate(op, data):
         old_blocks={fields(b).get('PublicKey'):b for b in original[1:]}
         for row in selected:
             if row['suspended']: continue
-            block=old_blocks.get(row['public_key'])
+            block=old_blocks.get(row['public_key']) or row['peer_options']
             if op=='rotate' and row['id']==identifier:
-                block=old_blocks.get(existing['public_key'])
+                block=old_blocks.get(existing['public_key']) or existing['peer_options']
                 if block: block=re.sub(r'(?m)^PublicKey\s*=.*$', 'PublicKey = '+row['public_key'],block)
-            cfg+='\n[Peer]\n'+(block.strip() if block else f'PublicKey = {row["public_key"]}\nAllowedIPs = {row["ip"]}/32')+'\n'
+            block=block.strip() if block else f'PublicKey = {row["public_key"]}\nAllowedIPs = {row["ip"]}/32'
+            c.execute('UPDATE clients SET peer_options=? WHERE id=?',(block,row['id']))
+            cfg+='\n[Peer]\n'+block+'\n'
         qos=''.join(f'{r["ip"]} {r["down"]} {r["up"]}\n' for r in selected)
         parse_qos(qos)
         txid=str(uuid.uuid4()); backup=ROOT/'backups'/txid; backup.mkdir(parents=True,mode=0o700)

@@ -1,0 +1,17 @@
+.gradle/
+**/build/
+local.properties
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db*
+*.key
+*.jks
+*.keystore
+*.conf
+*.env
+!*.example
+secrets/
+*.apk
+

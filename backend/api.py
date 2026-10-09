@@ -114,3 +114,6 @@ def operate(identifier:str,operation:str):
 
 @app.get('/clients/{identifier}/profile',dependencies=[Depends(authenticate)])
 def profile(identifier:str): return rpc('profile',{'id':identifier})
+
+@app.get('/clients/{identifier}/traffic',dependencies=[Depends(authenticate)])
+def traffic(identifier:str): return rpc('traffic',{'id':identifier})

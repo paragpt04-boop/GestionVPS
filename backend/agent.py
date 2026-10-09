@@ -178,7 +178,7 @@ def mutate(op, data):
         elif op=='update':
             c.execute('UPDATE clients SET name=?,down=?,up=? WHERE id=?',(name,down,up,identifier))
         elif op in ('suspend','activate'):
-            c.execute('UPDATE clients SET suspended=? WHERE id=?',(int(op=='suspend'),identifier))
+            c.execute('UPDATE clients SET suspended=?,rx=0,tx=0,handshake=0 WHERE id=?',(int(op=='suspend'),identifier))
         elif op=='delete':
             c.execute('UPDATE clients SET deleted=1,suspended=1 WHERE id=?',(identifier,))
             profile=pathlib.Path(existing['profile']) if existing['profile'] else None
@@ -256,6 +256,11 @@ def dispatch(request):
                 return {'name':row['name'],'config':pathlib.Path(row['profile']).read_text()}
         if op=='audit':
             with db() as c: return [dict(r) for r in c.execute("SELECT * FROM audit WHERE action NOT LIKE 'commit:%' ORDER BY id DESC LIMIT 200")]
+        if op=='traffic':
+            with db() as c:
+                if not c.execute('SELECT 1 FROM clients WHERE id=?',(data.get('id'),)).fetchone():
+                    raise ValueError('Cliente no encontrado')
+                return [dict(r) for r in c.execute('SELECT day,rx received_bytes,tx sent_bytes FROM traffic WHERE client_id=? ORDER BY day DESC LIMIT 365',(data['id'],))]
         if op=='diagnostics':
             return {name:command(*args) for name,args in {
                 'download':['tc','-s','class','show','dev','wg0'],

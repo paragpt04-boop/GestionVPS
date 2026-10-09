@@ -63,10 +63,11 @@ fun Panel(model: PanelModel = viewModel()) {
     var create by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<Pair<JSONObject,String>?>(null) }
     var profile by remember { mutableStateOf<JSONObject?>(null) }
+    var clientHistory by remember { mutableStateOf<Pair<String,JSONArray>?>(null) }
     var exportError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     LaunchedEffect(model.logged) {
-        if (!model.logged) { profile = null; confirmation = null; editing = null; create = false }
+        if (!model.logged) { profile = null; clientHistory = null; confirmation = null; editing = null; create = false }
     }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) {
@@ -102,7 +103,10 @@ fun Panel(model: PanelModel = viewModel()) {
                 if(dashboard==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Conectando con Miami…",color=Muted)}
                 else when(tab) {
                     0 -> Dashboard(dashboard)
-                    1 -> Clients(dashboard,model.busy,onEdit={editing=it},onAction={client,action->confirmation=client to action},onProfile={client->model.action {profile=JSONObject(Api.request("/clients/${client.getString("id")}/profile"))}})
+                    1 -> Clients(dashboard,model.busy,onEdit={editing=it},onAction={client,action->
+                        if(action=="history") model.action { clientHistory=client.getString("name") to JSONArray(Api.request("/clients/${client.getString("id")}/traffic")) }
+                        else confirmation=client to action
+                    },onProfile={client->model.action {profile=JSONObject(Api.request("/clients/${client.getString("id")}/profile"))}})
                     2 -> AuditScreen(model.records)
                     else -> SystemScreen(dashboard,model.diagnostic)
                 }
@@ -111,6 +115,16 @@ fun Panel(model: PanelModel = viewModel()) {
     }
     if(create || editing!=null) ClientDialog(editing,onDismiss={create=false;editing=null}) { name,down,up ->
         model.save(editing?.getString("id"),name,down,up);create=false;editing=null
+    }
+    clientHistory?.let { (name,days) ->
+        AlertDialog(onDismissRequest={clientHistory=null},title={Text("Historial · $name")},text={
+            LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                if(days.length()==0) item { Text("Todavía no hay muestras de tráfico.") }
+                items(arrayObjects(days)) { day ->
+                    Column { Text(day.getString("day"),fontWeight=FontWeight.Bold);Text("↓ ${gb(day.optLong("sent_bytes"))} · ↑ ${gb(day.optLong("received_bytes"))}",color=Mint) }
+                }
+            }
+        },confirmButton={TextButton(onClick={clientHistory=null}){Text("Cerrar")}})
     }
     confirmation?.let { (client,operation) ->
         val verb=mapOf("delete" to "Eliminar","suspend" to "Suspender","activate" to "Reactivar","rotate" to "Renovar claves")[operation] ?: operation
@@ -189,6 +203,7 @@ fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSO
                     var menu by remember { mutableStateOf(false) }
                     Box{IconButton(onClick={menu=true},enabled=!busy){Icon(Icons.Outlined.MoreVert,"Acciones")};DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
                         DropdownMenuItem(text={Text("Editar nombre y velocidad")},onClick={menu=false;onEdit(client)})
+                        DropdownMenuItem(text={Text("Historial de tráfico")},onClick={menu=false;onAction(client,"history")})
                         DropdownMenuItem(text={Text(if(client.optBoolean("suspended"))"Reactivar" else "Suspender")},onClick={menu=false;onAction(client,if(client.optBoolean("suspended"))"activate" else "suspend")})
                         DropdownMenuItem(text={Text("Renovar claves")},onClick={menu=false;onAction(client,"rotate")})
                         DropdownMenuItem(text={Text("Eliminar",color=Color(0xFFFFB5AE))},onClick={menu=false;onAction(client,"delete")})

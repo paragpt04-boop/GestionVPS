@@ -16,6 +16,7 @@ class PanelModel : ViewModel() {
     var diagnostic by mutableStateOf("")
     var plans by mutableStateOf(JSONArray())
     private var polling: Job? = null
+    private val activity=ActivityTracker()
 
     fun login(username: String, password: String) = action {
         val result = JSONObject(Api.request("/login", "POST", JSONObject().put("username", username).put("password", password)))
@@ -23,12 +24,12 @@ class PanelModel : ViewModel() {
         logged = true
         refresh()
         polling?.cancel()
-        polling = viewModelScope.launch { while (isActive && logged) { delay(15000); runCatching { refresh() }.onFailure { error = message(it); if (Api.token == null) logged = false } } }
+        polling = viewModelScope.launch { while (isActive && logged) { delay(5000); runCatching { refresh() }.onFailure { error = message(it); if (Api.token == null) logged = false } } }
     }
     fun logout() = action {
-        try { Api.request("/logout", "POST") } finally { Api.token = null; logged = false; polling?.cancel(); dashboard = null }
+        try { Api.request("/logout", "POST") } finally { Api.token = null; logged = false; polling?.cancel(); dashboard = null; activity.clear();plans=JSONArray() }
     }
-    suspend fun refresh() { dashboard = JSONObject(Api.request("/dashboard")); plans = JSONArray(Api.request("/plans")) }
+    suspend fun refresh() { dashboard = activity.annotate(JSONObject(Api.request("/dashboard")),android.os.SystemClock.elapsedRealtime()); plans = JSONArray(Api.request("/plans")) }
     fun reload() = action { refresh() }
     fun save(id: String?, name: String, down: Int, up: Int, planId: String?) = action {
         val body=JSONObject().put("name",name).put("download_mbps",down).put("upload_mbps",up)

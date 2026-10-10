@@ -33,18 +33,21 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import kotlinx.coroutines.delay
 
-private val Mint = Color(0xFF50E3C2)
-private val Background = Color(0xFF08131F)
-private val Surface = Color(0xFF122333)
-private val Muted = Color(0xFF9BADBF)
+private val Mint = Color(0xFF245CC5)
+private val Background = Color(0xFFF5F3EE)
+private val Surface = Color.White
+private val Muted = Color(0xFF626B70)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary=Mint,onPrimary=Background,background=Background,surface=Surface,onSurface=Color(0xFFEAF2F8),secondary=Mint)) {
+            MiamiTheme {
                 Panel()
             }
         }
@@ -52,8 +55,20 @@ class MainActivity : ComponentActivity() {
 }
 
 internal fun arrayObjects(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else (0 until array.length()).map { array.getJSONObject(it) }
-internal fun gb(bytes: Long) = String.format(Locale.US,"%.3f GB",bytes/1_000_000_000.0)
+internal fun gb(bytes: Long):String {
+    val format=DecimalFormat("0.###",DecimalFormatSymbols(Locale.forLanguageTag("es")))
+    format.isGroupingUsed=false
+    return format.format(bytes/1_000_000_000.0)+" GB"
+}
 internal fun date(seconds: Long): String = if (seconds == 0L) "Sin handshake" else SimpleDateFormat("dd MMM yyyy · HH:mm",Locale.getDefault()).format(Date(seconds*1000))
+
+@Composable
+internal fun MiamiTheme(content:@Composable ()->Unit) {
+    MaterialTheme(colorScheme=lightColorScheme(primary=Mint,onPrimary=Color.White,background=Background,
+        surface=Surface,onSurface=Color(0xFF242B32),onSurfaceVariant=Muted,surfaceVariant=Color(0xFFEBEDEB),
+        surfaceContainerHighest=Color(0xFFF0F1EE),secondary=Mint,secondaryContainer=Color(0xFFE8EDF5)),
+        shapes=Shapes(small=RoundedCornerShape(8.dp),medium=RoundedCornerShape(12.dp),large=RoundedCornerShape(18.dp)),content=content)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,20 +100,20 @@ fun Panel(model: PanelModel = viewModel()) {
     }
     Scaffold(
         containerColor=Background,
-        topBar={ TopAppBar(title={ Column { Text("MIAMI",fontWeight=FontWeight.ExtraBold,letterSpacing=3.sp); Text("WIREGUARD CONTROL",fontSize=10.sp,color=Muted,letterSpacing=2.sp) } },
+        topBar={ TopAppBar(title={ Column { Text("Miami",fontWeight=FontWeight.SemiBold); Text("Administración de tu VPN",fontSize=12.sp,color=Muted) } },
             actions={ IconButton(onClick={model.reload()},enabled=!model.busy){Icon(Icons.Outlined.Refresh,"Actualizar")}; IconButton(onClick={model.logout()},enabled=!model.busy){Icon(Icons.Outlined.Logout,"Cerrar sesión")} },colors=TopAppBarDefaults.topAppBarColors(containerColor=Background)) },
         bottomBar={ NavigationBar(containerColor=Surface) {
             listOf("Resumen","Clientes","Planes","Actividad","Sistema").forEachIndexed { index,label ->
                 NavigationBarItem(selected=tab==index,onClick={tab=index;if(index==3)model.loadAudit();if(index==4)model.loadDiagnostics()},icon={Icon(listOf(Icons.Outlined.Dashboard,Icons.Outlined.People,Icons.Outlined.Inventory2,Icons.Outlined.History,Icons.Outlined.Settings)[index],label)},label={Text(label,fontSize=11.sp)})
             }
         } },
-        floatingActionButton={if(tab==1) FloatingActionButton(onClick={create=true},containerColor=Mint){Icon(Icons.Outlined.Add,"Crear cliente",tint=Background)}}
+        floatingActionButton={if(tab==1) ExtendedFloatingActionButton(onClick={create=true},containerColor=Mint,contentColor=Color.White,icon={Icon(Icons.Outlined.Add,null)},text={Text("Nuevo cliente")})}
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
                 if(model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 (model.error ?: exportError)?.let { message ->
-                    Text(message,color=Color(0xFFFFB5AE),modifier=Modifier.fillMaxWidth().background(Color(0xFF3B252B)).padding(16.dp))
+                    Text(message,color=Color(0xFF9F2924),modifier=Modifier.fillMaxWidth().background(Color(0xFFFCEAE6)).padding(16.dp))
                 }
                 val dashboard=model.dashboard
                 if(dashboard==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Conectando con Miami…",color=Muted)}
@@ -151,12 +166,11 @@ fun LoginScreen(model:PanelModel) {
     Box(Modifier.fillMaxSize().background(Background).systemBarsPadding().imePadding().padding(24.dp),contentAlignment=Alignment.Center) {
         Column(Modifier.widthIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(18.dp)) {
             Icon(Icons.Outlined.Shield,"",tint=Mint,modifier=Modifier.size(58.dp))
-            Text("Tu red.\nBajo control.",fontSize=38.sp,lineHeight=43.sp,fontWeight=FontWeight.Bold)
-            Text("MIAMI / PANEL ADMINISTRATIVO",color=Mint,fontSize=11.sp,letterSpacing=2.sp)
-            Text("Gestiona tus clientes WireGuard desde una conexión segura.",color=Muted)
+            Text("Bienvenido a Miami",fontSize=30.sp,lineHeight=36.sp,fontWeight=FontWeight.SemiBold)
+            Text("Entra para administrar tus clientes y planes.",color=Muted)
             OutlinedTextField(username,{username=it},label={Text("Usuario administrador")},singleLine=true,modifier=Modifier.fillMaxWidth(),enabled=!model.busy)
             OutlinedTextField(password,{password=it},label={Text("Contraseña")},singleLine=true,visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),enabled=!model.busy)
-            model.error?.let{Text(it,color=Color(0xFFFFB5AE))}
+            model.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             Button(onClick={model.login(username,password);password=""},enabled=!model.busy&&username.isNotBlank()&&password.isNotEmpty(),modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(14.dp)){Text(if(model.busy)"Conectando…" else "Entrar al panel",fontWeight=FontWeight.Bold)}
             Text("107.178.51.31 · HTTPS\nLa sesión dura una hora y no se guarda en el dispositivo.",color=Muted,fontSize=12.sp)
         }
@@ -168,19 +182,18 @@ fun Dashboard(data:JSONObject) {
     val clients=arrayObjects(data.optJSONArray("clients"))
     val sent=clients.sumOf{it.optLong("sent_bytes")};val received=clients.sumOf{it.optLong("received_bytes")}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-        item { Text("Vista general",fontSize=28.sp,fontWeight=FontWeight.Bold);Text("Actualizado ${date(data.optLong("timestamp"))} · cada 15 s",fontSize=12.sp,color=Muted) }
-        item { Card(colors=CardDefaults.cardColors(containerColor=Color(0xFF123C3D)),shape=RoundedCornerShape(22.dp)) {
-            Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                Text("MIAMI · SERVIDOR VPN",color=Mint,fontSize=12.sp,letterSpacing=1.sp)
-                Spacer(Modifier.height(12.dp));Text("107.178.51.31",fontSize=28.sp,fontWeight=FontWeight.Bold)
-                Spacer(Modifier.height(8.dp));Text("wg0   /   10.5.0.0/24   /   UDP 51820",color=Color(0xFFB5D8D1),fontSize=12.sp)
-                Spacer(Modifier.height(20.dp));Text("${clients.count{it.optBoolean("active_estimated")}} conexiones recientes",fontWeight=FontWeight.SemiBold)
-                Text("Estimación por handshake en los últimos 3 minutos",fontSize=11.sp,color=Muted)
+        item { Text("Resumen",fontSize=28.sp,fontWeight=FontWeight.SemiBold);Text("Actualizado ${date(data.optLong("timestamp"))} · cada 5 s",fontSize=12.sp,color=Muted) }
+        item { Card(colors=CardDefaults.cardColors(containerColor=Surface),border=BorderStroke(1.dp,Color(0xFFE0E2DC)),shape=RoundedCornerShape(12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Text("Servidor de Miami",fontSize=18.sp,fontWeight=FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp));Text("107.178.51.31",fontSize=14.sp,color=Muted)
+                Spacer(Modifier.height(16.dp));Text("${clients.count{it.optBoolean("activity_recent",it.optBoolean("active_estimated"))}} clientes con actividad reciente",fontWeight=FontWeight.SemiBold,color=Mint)
+                Text("Tráfico reciente o comunicación de WireGuard en los últimos 3 minutos",fontSize=12.sp,color=Muted)
             }
         } }
         item { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { Metric("Clientes",clients.size.toString(),Modifier.weight(1f));Metric("Suspendidos",clients.count{it.optBoolean("suspended")}.toString(),Modifier.weight(1f)) } }
         item { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { Metric("Descarga clientes",gb(sent),Modifier.weight(1f));Metric("Subida clientes",gb(received),Modifier.weight(1f)) } }
-        items(arrayObjects(data.optJSONArray("alerts"))) { alert -> Card(colors=CardDefaults.cardColors(containerColor=Color(0xFF413725))){Text("Aviso · ${alert.optString("message")}",Modifier.fillMaxWidth().padding(16.dp),color=Color(0xFFFFD48A))} }
+        items(arrayObjects(data.optJSONArray("alerts"))) { alert -> Card(colors=CardDefaults.cardColors(containerColor=Color(0xFFFFF0D5))){Text("Aviso · ${alert.optString("message")}",Modifier.fillMaxWidth().padding(16.dp),color=Color(0xFF7C5018))} }
         item { Text("Historial diario · UTC",fontSize=20.sp,fontWeight=FontWeight.SemiBold) }
         val history=arrayObjects(data.optJSONArray("history"))
         if(history.isEmpty()) item{Text("El historial aparecerá al recoger las primeras muestras.",color=Muted)}
@@ -191,22 +204,25 @@ fun Dashboard(data:JSONObject) {
 
 @Composable
 fun Metric(label:String,value:String,modifier:Modifier) {
-    Card(modifier,shape=RoundedCornerShape(18.dp)) { Column(Modifier.padding(16.dp)){Text(label,fontSize=12.sp,color=Muted);Spacer(Modifier.height(8.dp));Text(value,fontSize=24.sp,fontWeight=FontWeight.Bold)} }
+    Card(modifier,colors=CardDefaults.cardColors(containerColor=Surface),border=BorderStroke(1.dp,Color(0xFFE0E2DC)),shape=RoundedCornerShape(12.dp)) { Column(Modifier.padding(16.dp)){Text(label,fontSize=12.sp,color=Muted);Spacer(Modifier.height(8.dp));Text(value,fontSize=22.sp,fontWeight=FontWeight.SemiBold)} }
 }
 
 @Composable
 fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSONObject,String)->Unit,onProfile:(JSONObject)->Unit) {
     var query by remember { mutableStateOf("") }
+    var now by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) { while(true) { delay(5000);now=android.os.SystemClock.elapsedRealtime() } }
+    val stale=data.has("observed_at_ms") && now-data.optLong("observed_at_ms")>30_000
     val clients=arrayObjects(data.optJSONArray("clients")).filter{it.getString("name").contains(query,true)||it.getString("ip").contains(query)}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=20.dp,end=20.dp,top=20.dp,bottom=100.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-        item{Text("Clientes",fontSize=28.sp,fontWeight=FontWeight.Bold);Text("Perfiles individuales. Velocidades independientes.",fontSize=12.sp,color=Muted)}
+        item{Text("Clientes",fontSize=28.sp,fontWeight=FontWeight.SemiBold);Text("${clients.size} en la lista · toca su estado para ver qué significa",fontSize=12.sp,color=Muted)}
         item{OutlinedTextField(query,{query=it},label={Text("Buscar nombre o IP")},leadingIcon={Icon(Icons.Outlined.Search,null)},modifier=Modifier.fillMaxWidth(),singleLine=true)}
         if(clients.isEmpty()) item{Text("No hay clientes que mostrar. Usa + para crear uno.",color=Muted,modifier=Modifier.padding(vertical=24.dp))}
         items(clients,key={it.getString("id")}){client->
-            Card(shape=RoundedCornerShape(20.dp)) { Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Card(colors=CardDefaults.cardColors(containerColor=Surface),border=BorderStroke(1.dp,Color(0xFFE0E2DC)),shape=RoundedCornerShape(12.dp)) { Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(42.dp).background(Color(0xFF214940),RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Text(client.getString("name").take(1).uppercase(),color=Mint,fontWeight=FontWeight.Bold)}
-                    Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(client.getString("name"),fontWeight=FontWeight.Bold,fontSize=19.sp);Text(client.getString("ip"),color=Muted,fontSize=12.sp)}
+                    Column(Modifier.weight(1f).padding(end=6.dp)){Text(client.getString("name"),fontWeight=FontWeight.SemiBold,fontSize=18.sp);Text(client.getString("ip"),color=Muted,fontSize=12.sp)}
+                    ClientStatus(client,stale)
                     var menu by remember { mutableStateOf(false) }
                     Box{IconButton(onClick={menu=true},enabled=!busy){Icon(Icons.Outlined.MoreVert,"Acciones")};DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
                         DropdownMenuItem(text={Text("Editar nombre y velocidad")},onClick={menu=false;onEdit(client)})
@@ -214,18 +230,35 @@ fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSO
                         DropdownMenuItem(text={Text("Historial de tráfico")},onClick={menu=false;onAction(client,"history")})
                         DropdownMenuItem(text={Text(if(client.optBoolean("suspended"))"Reactivar" else "Suspender")},onClick={menu=false;onAction(client,if(client.optBoolean("suspended"))"activate" else "suspend")})
                         DropdownMenuItem(text={Text("Renovar claves")},onClick={menu=false;onAction(client,"rotate")})
-                        DropdownMenuItem(text={Text("Eliminar",color=Color(0xFFFFB5AE))},onClick={menu=false;onAction(client,"delete")})
+                        DropdownMenuItem(text={Text("Eliminar",color=MaterialTheme.colorScheme.error)},onClick={menu=false;onAction(client,"delete")})
                     }}
                 }
-                Text(if(client.optBoolean("suspended"))"SUSPENDIDO" else if(client.optBoolean("active_estimated"))"HANDSHAKE RECIENTE" else "SIN HANDSHAKE RECIENTE",color=if(client.optBoolean("active_estimated"))Mint else Muted,fontSize=10.sp,letterSpacing=1.sp)
-                Text("↓ ${client.getInt("download_mbps")} Mbps     ↑ ${client.getInt("upload_mbps")} Mbps",fontWeight=FontWeight.SemiBold)
+                if(client.optBoolean("suspended")) Text("Acceso suspendido",color=MaterialTheme.colorScheme.error,fontSize=12.sp)
                 SubscriptionSummary(client.optJSONObject("subscription"))
+                HorizontalDivider(color=Color(0xFFE8EAE5))
+                Text("Velocidad: ↓ ${client.getInt("download_mbps")} · ↑ ${client.getInt("upload_mbps")} Mbps",fontSize=13.sp)
                 Text("Tráfico: ↓ ${gb(client.optLong("sent_bytes"))} · ↑ ${gb(client.optLong("received_bytes"))}",fontSize=12.sp,color=Muted)
-                Text("Último handshake: ${date(client.optLong("last_handshake"))}",fontSize=11.sp,color=Muted)
                 OutlinedButton(onClick={onProfile(client)},enabled=!busy&&!client.optBoolean("suspended")&&client.optBoolean("profile_available"),modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.QrCode,"",Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text("Perfil .conf y código QR")}
             } }
         }
     }
+}
+
+@Composable
+internal fun ClientStatus(client:JSONObject,stale:Boolean=false) {
+    var help by remember { mutableStateOf(false) }
+    val active=!client.optBoolean("suspended")&&client.optBoolean("activity_recent",client.optBoolean("active_estimated"))
+    val color=if(stale) Muted else if(active) Color(0xFF176B40) else Color(0xFFB12828)
+    Surface(onClick={help=true},color=color.copy(alpha=0.08f),shape=RoundedCornerShape(6.dp),modifier=Modifier.widthIn(max=120.dp)) {
+        Row(Modifier.padding(horizontal=8.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+            Box(Modifier.size(6.dp).background(color,androidx.compose.foundation.shape.CircleShape))
+            Text(if(stale) "Sin actualizar" else if(active) "Activo ahora" else "No activo ahora",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=color)
+        }
+    }
+    if(help) AlertDialog(onDismissRequest={help=false},title={Text("Actividad de ${client.optString("name")}")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        Text(if(stale) "No llegan datos nuevos. Actualiza el panel o comprueba la conexión." else if(client.optBoolean("suspended")) "Su acceso está suspendido." else "Verde: tráfico observado recientemente o handshake en los últimos 3 minutos. Rojo: no se ha observado esa actividad. WireGuard no confirma una conexión permanente; es una estimación que se actualiza cada 5 segundos.")
+        Text("Último handshake: ${date(client.optLong("last_handshake"))}",fontSize=12.sp)
+    }},confirmButton={TextButton(onClick={help=false}){Text("Entendido")}})
 }
 
 @Composable
@@ -235,14 +268,14 @@ fun ClientDialog(client:JSONObject?,plans:JSONArray,onDismiss:()->Unit,onSave:(S
     var up by remember {mutableStateOf((client?.getInt("upload_mbps") ?: 1).toString())}
     var planId by remember {mutableStateOf<String?>(null)}
     val valid=name.trim().isNotEmpty()&&name.length<=64&&(down.toIntOrNull() ?: 0) in 1..1000&&(up.toIntOrNull() ?: 0) in 1..1000
-    AlertDialog(onDismissRequest=onDismiss,title={Text(if(client==null)"Nuevo cliente" else "Editar cliente")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    EditorWindow(title=if(client==null)"Nuevo cliente" else "Editar cliente",subtitle="Nombre, velocidad y acceso",confirmLabel="Guardar cliente",onDismiss=onDismiss,enabled=valid,onConfirm={onSave(name.trim(),down.toInt(),up.toInt(),planId)}) {
         Text("Elige el nombre que quieras. La IP y las claves se asignan automáticamente.",color=Muted,fontSize=12.sp)
         OutlinedTextField(name,{name=it.take(64)},label={Text("Nombre o usuario")},singleLine=true)
         OutlinedTextField(down,{down=it.filter(Char::isDigit).take(4)},label={Text("Descarga · Mbps")},singleLine=true)
         OutlinedTextField(up,{up=it.filter(Char::isDigit).take(4)},label={Text("Subida · Mbps")},singleLine=true)
         Text("De 1 a 1000 Mbps. La velocidad es independiente del plan.",fontSize=11.sp,color=Muted)
         if(client==null) PlanPicker(plans,planId,true){planId=it}
-    }},confirmButton={TextButton(onClick={onSave(name.trim(),down.toInt(),up.toInt(),planId)},enabled=valid){Text("Guardar")}},dismissButton={TextButton(onClick=onDismiss){Text("Cancelar")}})
+    }
 }
 
 @Composable

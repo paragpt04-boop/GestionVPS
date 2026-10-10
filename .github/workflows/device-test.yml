@@ -33,7 +33,10 @@ jobs:
           arch: x86_64
           target: google_apis
           working-directory: android
-          script: gradle --no-daemon connectedDebugAndroidTest
+          script: |
+            gradle --no-daemon connectedDebugAndroidTest
+            mkdir -p app/build/reports/androidTests/previews
+            adb pull /sdcard/Android/data/com.gestionvps.miami/files/previews/. app/build/reports/androidTests/previews/
       - uses: actions/upload-artifact@v4
         if: always()
         with:

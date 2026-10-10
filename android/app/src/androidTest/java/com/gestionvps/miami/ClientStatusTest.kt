@@ -27,7 +27,7 @@ class ClientStatusTest {
         compose.onNodeWithText("Disponible: 2 GB de 2 GB").assertIsDisplayed()
         val folder=File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null),"previews").apply { mkdirs() }
         File(folder,"clientes.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG,100,it) }
-        compose.onNodeWithText("Activo ahora",exact=true).performClick()
+        compose.onNodeWithText("Activo ahora").performClick()
         compose.onNodeWithText("Actividad de Jesús").assertIsDisplayed()
     }
     @Test fun missingUpdatesDoNotClaimAnActiveConnection() {

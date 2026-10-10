@@ -44,7 +44,8 @@ try:
     renewed=req(f'/clients/{identifier}/profile')['config'];assert renewed!=profile
     print('PASS edit, suspend, activate, rotate')
     req('/diagnostics');assert len(req('/audit'))>=6
-    print('PASS diagnostics and audit')
+    assert isinstance(req(f'/clients/{identifier}/traffic'),list)
+    print('PASS diagnostics, individual history and audit')
 finally:
     if identifier:
         req(f'/clients/{identifier}','DELETE')

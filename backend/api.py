@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StrictInt
 
 STATE=pathlib.Path(os.environ.get('GESTIONVPS_API_STATE','/var/lib/gestionvps-api'))
-app=FastAPI(title='GestionVPS',version='0.1.0',docs_url=None,redoc_url=None,openapi_url=None)
+app=FastAPI(title='GestionVPS',version='0.2.0',docs_url=None,redoc_url=None,openapi_url=None)
 
 def database():
     c=sqlite3.connect(STATE/'auth.sqlite',timeout=15); c.row_factory=sqlite3.Row
@@ -29,6 +29,18 @@ class Client(BaseModel):
     name: str=Field(min_length=1,max_length=64)
     download_mbps: StrictInt=Field(default=2,ge=1,le=1000)
     upload_mbps: StrictInt=Field(default=1,ge=1,le=1000)
+    plan_id: str | None=Field(default=None,max_length=64)
+
+class Plan(BaseModel):
+    name: str=Field(min_length=1,max_length=64)
+    duration: StrictInt | None=Field(default=None,ge=1,le=3650)
+    unit: str=Field(default='days',pattern='^(days|months)$')
+    quota_bytes: StrictInt | None=Field(default=None,ge=1000000,le=1000000000000000)
+
+class Subscription(BaseModel):
+    operation: str=Field(pattern='^(assign|change|topup|renew|cancel)$')
+    plan_id: str | None=Field(default=None,max_length=64)
+    bytes: StrictInt | None=Field(default=None,ge=1000000,le=1000000000000000)
 
 def authenticate(authorization: str=Header(default='')):
     if not authorization.startswith('Bearer '): raise HTTPException(401,'Inicia sesión')
@@ -60,7 +72,7 @@ async def headers(request:Request,call_next):
     return response
 
 @app.get('/health')
-def health(): return {'status':'ok','version':'0.1.0'}
+def health(): return {'status':'ok','version':'0.2.0'}
 
 @app.post('/login')
 def login(body:Login,request:Request):
@@ -117,3 +129,22 @@ def profile(identifier:str): return rpc('profile',{'id':identifier})
 
 @app.get('/clients/{identifier}/traffic',dependencies=[Depends(authenticate)])
 def traffic(identifier:str): return rpc('traffic',{'id':identifier})
+
+@app.get('/plans',dependencies=[Depends(authenticate)])
+def list_plans(): return rpc('plans')
+
+@app.post('/plans',dependencies=[Depends(authenticate)])
+def create_plan(body:Plan): return rpc('plan_create',body.model_dump())
+
+@app.put('/plans/{identifier}',dependencies=[Depends(authenticate)])
+def update_plan(identifier:str,body:Plan): return rpc('plan_update',{'id':identifier,**body.model_dump()})
+
+@app.delete('/plans/{identifier}',dependencies=[Depends(authenticate)])
+def archive_plan(identifier:str): return rpc('plan_archive',{'id':identifier})
+
+@app.put('/clients/{identifier}/subscription',dependencies=[Depends(authenticate)])
+def subscription(identifier:str,body:Subscription):
+    return rpc('subscription',{'id':identifier,**body.model_dump(exclude_none=True)})
+
+@app.get('/clients/{identifier}/subscription-history',dependencies=[Depends(authenticate)])
+def subscription_history(identifier:str): return rpc('subscription_history',{'id':identifier})

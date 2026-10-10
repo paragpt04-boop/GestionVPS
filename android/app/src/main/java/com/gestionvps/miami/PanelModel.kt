@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import org.json.JSONArray
 
 class PanelModel : ViewModel() {
     var logged by mutableStateOf(false)
@@ -13,6 +14,7 @@ class PanelModel : ViewModel() {
     var dashboard by mutableStateOf<JSONObject?>(null)
     var records by mutableStateOf("")
     var diagnostic by mutableStateOf("")
+    var plans by mutableStateOf(JSONArray())
     private var polling: Job? = null
 
     fun login(username: String, password: String) = action {
@@ -26,10 +28,12 @@ class PanelModel : ViewModel() {
     fun logout() = action {
         try { Api.request("/logout", "POST") } finally { Api.token = null; logged = false; polling?.cancel(); dashboard = null }
     }
-    suspend fun refresh() { dashboard = JSONObject(Api.request("/dashboard")) }
+    suspend fun refresh() { dashboard = JSONObject(Api.request("/dashboard")); plans = JSONArray(Api.request("/plans")) }
     fun reload() = action { refresh() }
-    fun save(id: String?, name: String, down: Int, up: Int) = action {
-        Api.request(if (id == null) "/clients" else "/clients/$id", if (id == null) "POST" else "PUT", JSONObject().put("name",name).put("download_mbps",down).put("upload_mbps",up)); refresh()
+    fun save(id: String?, name: String, down: Int, up: Int, planId: String?) = action {
+        val body=JSONObject().put("name",name).put("download_mbps",down).put("upload_mbps",up)
+        if (id==null && planId!=null) body.put("plan_id",planId)
+        Api.request(if (id == null) "/clients" else "/clients/$id", if (id == null) "POST" else "PUT", body); refresh()
     }
     fun operate(id: String, operation: String) = action {
         Api.request("/clients/$id" + if (operation == "delete") "" else "/$operation", if (operation == "delete") "DELETE" else "POST"); refresh()

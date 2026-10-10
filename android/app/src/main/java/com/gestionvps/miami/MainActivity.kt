@@ -51,9 +51,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun arrayObjects(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else (0 until array.length()).map { array.getJSONObject(it) }
-private fun gb(bytes: Long) = String.format(Locale.US,"%.2f GB",bytes/1_000_000_000.0)
-private fun date(seconds: Long): String = if (seconds == 0L) "Sin handshake" else SimpleDateFormat("dd MMM · HH:mm",Locale.getDefault()).format(Date(seconds*1000))
+internal fun arrayObjects(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else (0 until array.length()).map { array.getJSONObject(it) }
+internal fun gb(bytes: Long) = String.format(Locale.US,"%.3f GB",bytes/1_000_000_000.0)
+internal fun date(seconds: Long): String = if (seconds == 0L) "Sin handshake" else SimpleDateFormat("dd MMM yyyy · HH:mm",Locale.getDefault()).format(Date(seconds*1000))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,9 +65,10 @@ fun Panel(model: PanelModel = viewModel()) {
     var profile by remember { mutableStateOf<JSONObject?>(null) }
     var clientHistory by remember { mutableStateOf<Pair<String,JSONArray>?>(null) }
     var exportError by remember { mutableStateOf<String?>(null) }
+    var subscriptionClient by remember { mutableStateOf<JSONObject?>(null) }
     val context = LocalContext.current
     LaunchedEffect(model.logged) {
-        if (!model.logged) { profile = null; clientHistory = null; confirmation = null; editing = null; create = false }
+        if (!model.logged) { profile = null; clientHistory = null; confirmation = null; editing = null; create = false; subscriptionClient = null }
     }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) {
@@ -87,8 +88,8 @@ fun Panel(model: PanelModel = viewModel()) {
         topBar={ TopAppBar(title={ Column { Text("MIAMI",fontWeight=FontWeight.ExtraBold,letterSpacing=3.sp); Text("WIREGUARD CONTROL",fontSize=10.sp,color=Muted,letterSpacing=2.sp) } },
             actions={ IconButton(onClick={model.reload()},enabled=!model.busy){Icon(Icons.Outlined.Refresh,"Actualizar")}; IconButton(onClick={model.logout()},enabled=!model.busy){Icon(Icons.Outlined.Logout,"Cerrar sesión")} },colors=TopAppBarDefaults.topAppBarColors(containerColor=Background)) },
         bottomBar={ NavigationBar(containerColor=Surface) {
-            listOf("Resumen","Clientes","Actividad","Sistema").forEachIndexed { index,label ->
-                NavigationBarItem(selected=tab==index,onClick={tab=index;if(index==2)model.loadAudit();if(index==3)model.loadDiagnostics()},icon={Icon(listOf(Icons.Outlined.Dashboard,Icons.Outlined.People,Icons.Outlined.History,Icons.Outlined.Settings)[index],label)},label={Text(label,fontSize=11.sp)})
+            listOf("Resumen","Clientes","Planes","Actividad","Sistema").forEachIndexed { index,label ->
+                NavigationBarItem(selected=tab==index,onClick={tab=index;if(index==3)model.loadAudit();if(index==4)model.loadDiagnostics()},icon={Icon(listOf(Icons.Outlined.Dashboard,Icons.Outlined.People,Icons.Outlined.Inventory2,Icons.Outlined.History,Icons.Outlined.Settings)[index],label)},label={Text(label,fontSize=11.sp)})
             }
         } },
         floatingActionButton={if(tab==1) FloatingActionButton(onClick={create=true},containerColor=Mint){Icon(Icons.Outlined.Add,"Crear cliente",tint=Background)}}
@@ -104,17 +105,23 @@ fun Panel(model: PanelModel = viewModel()) {
                 else when(tab) {
                     0 -> Dashboard(dashboard)
                     1 -> Clients(dashboard,model.busy,onEdit={editing=it},onAction={client,action->
-                        if(action=="history") model.action { clientHistory=client.getString("name") to JSONArray(Api.request("/clients/${client.getString("id")}/traffic")) }
+                        if(action=="subscription") subscriptionClient=client
+                        else if(action=="history") model.action { clientHistory=client.getString("name") to JSONArray(Api.request("/clients/${client.getString("id")}/traffic")) }
                         else confirmation=client to action
                     },onProfile={client->model.action {profile=JSONObject(Api.request("/clients/${client.getString("id")}/profile"))}})
-                    2 -> AuditScreen(model.records)
+                    2 -> PlansScreen(model)
+                    3 -> AuditScreen(model.records)
                     else -> SystemScreen(dashboard,model.diagnostic)
                 }
             }
         }
     }
-    if(create || editing!=null) ClientDialog(editing,onDismiss={create=false;editing=null}) { name,down,up ->
-        model.save(editing?.getString("id"),name,down,up);create=false;editing=null
+    if(create || editing!=null) ClientDialog(editing,model.plans,onDismiss={create=false;editing=null}) { name,down,up,planId ->
+        model.save(editing?.getString("id"),name,down,up,planId);create=false;editing=null
+    }
+    subscriptionClient?.let { client ->
+        val current=arrayObjects(model.dashboard?.optJSONArray("clients")).find { it.getString("id")==client.getString("id") } ?: client
+        SubscriptionDialog(current,model,onDismiss={subscriptionClient=null})
     }
     clientHistory?.let { (name,days) ->
         AlertDialog(onDismissRequest={clientHistory=null},title={Text("Historial · $name")},text={
@@ -178,7 +185,7 @@ fun Dashboard(data:JSONObject) {
         val history=arrayObjects(data.optJSONArray("history"))
         if(history.isEmpty()) item{Text("El historial aparecerá al recoger las primeras muestras.",color=Muted)}
         items(history){ day -> Card { Column(Modifier.fillMaxWidth().padding(16.dp)){Text(day.getString("day"),fontWeight=FontWeight.SemiBold);Spacer(Modifier.height(6.dp));Text("↓ ${gb(day.optLong("sent_bytes"))}     ↑ ${gb(day.optLong("received_bytes"))}",color=Mint)} } }
-        item { Text("Sin cuota mensual. El historial comienza con la instalación; no reconstruye tráfico anterior. Puede faltar tráfico entre la última muestra y un reinicio.",fontSize=12.sp,color=Muted) }
+        item { Text("Los planes descuentan descarga y subida juntas. Suspensión automática comprobada cada 5 s; puede existir tráfico entre muestras. El historial comienza con la instalación.",fontSize=12.sp,color=Muted) }
     }
 }
 
@@ -203,6 +210,7 @@ fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSO
                     var menu by remember { mutableStateOf(false) }
                     Box{IconButton(onClick={menu=true},enabled=!busy){Icon(Icons.Outlined.MoreVert,"Acciones")};DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
                         DropdownMenuItem(text={Text("Editar nombre y velocidad")},onClick={menu=false;onEdit(client)})
+                        DropdownMenuItem(text={Text("Plan, recargas y renovaciones")},onClick={menu=false;onAction(client,"subscription")})
                         DropdownMenuItem(text={Text("Historial de tráfico")},onClick={menu=false;onAction(client,"history")})
                         DropdownMenuItem(text={Text(if(client.optBoolean("suspended"))"Reactivar" else "Suspender")},onClick={menu=false;onAction(client,if(client.optBoolean("suspended"))"activate" else "suspend")})
                         DropdownMenuItem(text={Text("Renovar claves")},onClick={menu=false;onAction(client,"rotate")})
@@ -211,6 +219,7 @@ fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSO
                 }
                 Text(if(client.optBoolean("suspended"))"SUSPENDIDO" else if(client.optBoolean("active_estimated"))"HANDSHAKE RECIENTE" else "SIN HANDSHAKE RECIENTE",color=if(client.optBoolean("active_estimated"))Mint else Muted,fontSize=10.sp,letterSpacing=1.sp)
                 Text("↓ ${client.getInt("download_mbps")} Mbps     ↑ ${client.getInt("upload_mbps")} Mbps",fontWeight=FontWeight.SemiBold)
+                SubscriptionSummary(client.optJSONObject("subscription"))
                 Text("Tráfico: ↓ ${gb(client.optLong("sent_bytes"))} · ↑ ${gb(client.optLong("received_bytes"))}",fontSize=12.sp,color=Muted)
                 Text("Último handshake: ${date(client.optLong("last_handshake"))}",fontSize=11.sp,color=Muted)
                 OutlinedButton(onClick={onProfile(client)},enabled=!busy&&!client.optBoolean("suspended")&&client.optBoolean("profile_available"),modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.QrCode,"",Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text("Perfil .conf y código QR")}
@@ -220,18 +229,20 @@ fun Clients(data:JSONObject,busy:Boolean,onEdit:(JSONObject)->Unit,onAction:(JSO
 }
 
 @Composable
-fun ClientDialog(client:JSONObject?,onDismiss:()->Unit,onSave:(String,Int,Int)->Unit) {
+fun ClientDialog(client:JSONObject?,plans:JSONArray,onDismiss:()->Unit,onSave:(String,Int,Int,String?)->Unit) {
     var name by remember {mutableStateOf(client?.getString("name") ?: "")}
     var down by remember {mutableStateOf((client?.getInt("download_mbps") ?: 2).toString())}
     var up by remember {mutableStateOf((client?.getInt("upload_mbps") ?: 1).toString())}
+    var planId by remember {mutableStateOf<String?>(null)}
     val valid=name.trim().isNotEmpty()&&name.length<=64&&(down.toIntOrNull() ?: 0) in 1..1000&&(up.toIntOrNull() ?: 0) in 1..1000
     AlertDialog(onDismissRequest=onDismiss,title={Text(if(client==null)"Nuevo cliente" else "Editar cliente")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
         Text("Elige el nombre que quieras. La IP y las claves se asignan automáticamente.",color=Muted,fontSize=12.sp)
         OutlinedTextField(name,{name=it.take(64)},label={Text("Nombre o usuario")},singleLine=true)
         OutlinedTextField(down,{down=it.filter(Char::isDigit).take(4)},label={Text("Descarga · Mbps")},singleLine=true)
         OutlinedTextField(up,{up=it.filter(Char::isDigit).take(4)},label={Text("Subida · Mbps")},singleLine=true)
-        Text("De 1 a 1000 Mbps. Sin cuota mensual de GB.",fontSize=11.sp,color=Muted)
-    }},confirmButton={TextButton(onClick={onSave(name.trim(),down.toInt(),up.toInt())},enabled=valid){Text("Guardar")}},dismissButton={TextButton(onClick=onDismiss){Text("Cancelar")}})
+        Text("De 1 a 1000 Mbps. La velocidad es independiente del plan.",fontSize=11.sp,color=Muted)
+        if(client==null) PlanPicker(plans,planId,true){planId=it}
+    }},confirmButton={TextButton(onClick={onSave(name.trim(),down.toInt(),up.toInt(),planId)},enabled=valid){Text("Guardar")}},dismissButton={TextButton(onClick=onDismiss){Text("Cancelar")}})
 }
 
 @Composable

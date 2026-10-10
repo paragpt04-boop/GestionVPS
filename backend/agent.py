@@ -18,6 +18,7 @@ import uuid
 
 from domain import delta, validate_client
 from qos import apply as apply_qos, parse as parse_qos
+import plans
 
 ROOT = pathlib.Path('/var/lib/gestionvps-agent')
 WG = pathlib.Path('/etc/wireguard/wg0.conf')
@@ -89,7 +90,8 @@ def initialize():
         c.execute('CREATE UNIQUE INDEX IF NOT EXISTS live_ips ON clients(ip) WHERE deleted=0')
         for b in blocks(WG.read_text())[1:]:
             c.execute("UPDATE clients SET peer_options=? WHERE public_key=? AND peer_options=''",(b.strip(),fields(b).get('PublicKey')))
-        c.execute('PRAGMA user_version=2')
+        plans.schema(c)
+        c.execute('PRAGMA user_version=3')
     recover()
     with db() as c:
         if c.execute('SELECT count(*) FROM clients').fetchone()[0]: return
@@ -126,11 +128,13 @@ def recover():
         sync_runtime(); apply_qos(parse_qos(QOS.read_text()))
     journal.unlink()
 
-def public(row):
+def public(row, subscription=None):
+    blocked=bool(row['suspended'] or row['plan_blocked'])
     return {'id':row['id'],'name':row['name'],'ip':row['ip'],
             'download_mbps':row['down'],'upload_mbps':row['up'],
-            'suspended':bool(row['suspended']), 'last_handshake':row['handshake'],
-            'active_estimated':not row['suspended'] and row['handshake'] > time.time()-180,
+            'suspended':blocked, 'manually_suspended':bool(row['suspended']), 'subscription':subscription,
+            'last_handshake':row['handshake'],
+            'active_estimated':not blocked and row['handshake'] > time.time()-180,
             'received_bytes':row['total_rx'],'sent_bytes':row['total_tx'],
             'profile_available':bool(row['profile'])}
 
@@ -150,16 +154,16 @@ def collect():
                       (rx,tx,dr,dt,boot,handshake,row['id']))
             c.execute('INSERT INTO traffic VALUES(?,?,?,?) ON CONFLICT(day,client_id) DO UPDATE SET rx=rx+excluded.rx,tx=tx+excluded.tx',(day,row['id'],dr,dt))
 
-def mutate(op, data):
+def mutate(op, data, sample=True):
     # Serialize runtime and database changes; recovery journal covers process crashes.
-    collect()
+    if sample: collect()
     c=db(); c.execute('BEGIN IMMEDIATE')
     journal=ROOT/'pending.json'
     info=None
     try:
         existing=c.execute('SELECT * FROM clients WHERE id=? AND deleted=0',(data.get('id',''),)).fetchone()
-        if op != 'create' and not existing: raise ValueError('Cliente no encontrado')
-        identifier=str(uuid.uuid4()) if op=='create' else existing['id']
+        if op not in ('create','enforce') and not existing: raise ValueError('Cliente no encontrado')
+        identifier=str(uuid.uuid4()) if op=='create' else existing['id'] if existing else None
         profile=None; new_profile=None
         if op in ('create','update'):
             name,down,up=validate_client(data)
@@ -175,9 +179,15 @@ def mutate(op, data):
             profile=CLIENTS/(identifier+'.conf')
             new_profile=f'[Interface]\nPrivateKey = {private}\nAddress = {ip}/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = {command("wg","show","wg0","public-key")}\nEndpoint = 107.178.51.31:51820\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25\n'
             c.execute('INSERT INTO clients(id,name,ip,public_key,profile,down,up) VALUES(?,?,?,?,?,?,?)',(identifier,name,ip,key,str(profile),down,up))
+            if data.get('plan_id'):
+                created=c.execute('SELECT * FROM clients WHERE id=?',(identifier,)).fetchone()
+                plans.change(c,created,{'operation':'assign','plan_id':data['plan_id']})
         elif op=='update':
             c.execute('UPDATE clients SET name=?,down=?,up=? WHERE id=?',(name,down,up,identifier))
         elif op in ('suspend','activate'):
+            subscription=plans.status(c,existing)
+            if op=='activate' and subscription and subscription['blocked_reason']:
+                raise ValueError('Renueva o añade GB al plan antes de reactivar')
             c.execute('UPDATE clients SET suspended=?,rx=0,tx=0,handshake=0 WHERE id=?',(int(op=='suspend'),identifier))
         elif op=='delete':
             c.execute('UPDATE clients SET deleted=1,suspended=1 WHERE id=?',(identifier,))
@@ -188,7 +198,14 @@ def mutate(op, data):
             private=command('wg','genkey'); key=command('wg','pubkey',input=private+'\n')
             new_profile=re.sub(r'(?m)^PrivateKey\s*=.*$', 'PrivateKey = '+private,profile.read_text())
             c.execute('UPDATE clients SET public_key=?,rx=0,tx=0,handshake=0 WHERE id=?',(key,identifier))
-        else: raise ValueError('Operación no permitida')
+        elif op=='subscription': plans.change(c,existing,data)
+        elif op!='enforce': raise ValueError('Operación no permitida')
+        for row in c.execute('SELECT * FROM clients WHERE deleted=0').fetchall():
+            subscription=plans.status(c,row)
+            blocked=int(bool(subscription and subscription['blocked_reason']))
+            if blocked!=row['plan_blocked']:
+                c.execute('UPDATE clients SET plan_blocked=?,rx=0,tx=0,handshake=0 WHERE id=?',(blocked,row['id']))
+                audit(c,'plan_blocked' if blocked else 'plan_restored',row['id'])
         # Retain unknown external peer blocks, all Interface directives and existing keys.
         original=blocks(WG.read_text()); known={r[0] for r in c.execute('SELECT public_key FROM clients')}
         if existing: known.add(existing['public_key'])
@@ -199,7 +216,7 @@ def mutate(op, data):
         # Preserve existing per-peer options (including PSK), when present.
         old_blocks={fields(b).get('PublicKey'):b for b in original[1:]}
         for row in selected:
-            if row['suspended']: continue
+            if row['suspended'] or row['plan_blocked']: continue
             block=old_blocks.get(row['public_key']) or row['peer_options']
             if op=='rotate' and row['id']==identifier:
                 block=old_blocks.get(existing['public_key']) or existing['peer_options']
@@ -230,28 +247,46 @@ def mutate(op, data):
         raise
     finally: c.close()
 
+def enforce():
+    with db() as c:
+        changed=any(bool(plans.status(c,r) and plans.status(c,r)['blocked_reason'])!=bool(r['plan_blocked'])
+                    for r in c.execute('SELECT * FROM clients WHERE deleted=0').fetchall())
+    if changed: mutate('enforce',{},sample=False)
+
+
 def dispatch(request):
     op=request.get('op'); data=request.get('data',{})
     with LOCK:
-        if op in ('create','update','suspend','activate','delete','rotate'): return mutate(op,data)
+        if op in ('create','update','suspend','activate','delete','rotate','subscription'): return mutate(op,data)
+        if op in ('plan_create','plan_update','plan_archive'):
+            with db() as c:
+                result=plans.catalog(c,op,data);audit(c,op);return result
+        if op=='plans':
+            with db() as c: return [dict(r) for r in c.execute('SELECT * FROM plans WHERE archived=0 ORDER BY name COLLATE NOCASE')]
+        if op=='subscription_history':
+            with db() as c: return [dict(r) for r in c.execute('SELECT * FROM subscription_events WHERE client_id=? ORDER BY id DESC LIMIT 200',(data.get('id'),))]
         if op=='dashboard':
             collect()
+            enforce()
             with db() as c:
                 rows=c.execute('SELECT * FROM clients WHERE deleted=0 ORDER BY name COLLATE NOCASE').fetchall()
+                clients=[public(r,plans.status(c,r)) for r in rows]
                 history=[dict(r) for r in c.execute('SELECT day,sum(rx) received_bytes,sum(tx) sent_bytes FROM traffic GROUP BY day ORDER BY day DESC LIMIT 30')]
             services={}
             for name in ['wg-quick@wg0','wg-qos']:
                 services[name]=subprocess.run(['systemctl','is-active',name],capture_output=True,text=True).stdout.strip()
-            return {'server':'Miami','timestamp':int(time.time()),'clients':[public(r) for r in rows],
+            return {'server':'Miami','timestamp':int(time.time()),'clients':clients,
                     'services':services,'history':history,'load':os.getloadavg()[0],
                     'uptime_seconds':float(pathlib.Path('/proc/uptime').read_text().split()[0]),
-                    'alerts':[{'severity':'warning','message':f'{k}: {v}'} for k,v in services.items() if v!='active'],
+                    'alerts':[{'severity':'warning','message':f'{k}: {v}'} for k,v in services.items() if v!='active']+
+                      [{'severity':'warning','message':f'{r["name"]}: plan suspendido ({r["subscription"]["blocked_reason"]})'} for r in clients if r['subscription'] and r['subscription']['blocked_reason']],
                     'traffic_note':'Bytes vistos por el servidor. Recibidos = subida del cliente. Enviados = descarga. Los reinicios entre muestras pueden perder tráfico no observado.'}
         if op=='profile':
+            collect();enforce()
             with db() as c:
                 row=c.execute('SELECT * FROM clients WHERE id=? AND deleted=0',(data.get('id'),)).fetchone()
                 if not row or not row['profile']: raise ValueError('Perfil no disponible')
-                if row['suspended']: raise ValueError('Reactiva el cliente antes de exportar')
+                if row['suspended'] or row['plan_blocked']: raise ValueError('Reactiva o renueva el cliente antes de exportar')
                 audit(c,'export_profile',row['id'])
                 return {'name':row['name'],'config':pathlib.Path(row['profile']).read_text()}
         if op=='audit':
@@ -281,15 +316,16 @@ class Handler(socketserver.StreamRequestHandler):
 
 def sampler():
     while True:
-        time.sleep(15)
+        time.sleep(5)
         try:
-            with LOCK: collect()
+            with LOCK: collect();enforce()
         except Exception:
             # No exception dumps: subprocess output can contain keys.
             print('Traffic sampling unavailable',flush=True)
 
 if __name__=='__main__':
     initialize()
+    with LOCK: collect();enforce()
     lock=open(ROOT/'agent.lock','w'); fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     sock=pathlib.Path('/run/gestionvps/agent.sock'); sock.unlink(missing_ok=True)
     server=socketserver.UnixStreamServer(str(sock),Handler)

@@ -188,7 +188,8 @@ def mutate(op, data, sample=True):
             subscription=plans.status(c,existing)
             if op=='activate' and subscription and subscription['blocked_reason']:
                 raise ValueError('Renueva o añade GB al plan antes de reactivar')
-            c.execute('UPDATE clients SET suspended=?,rx=0,tx=0,handshake=0 WHERE id=?',(int(op=='suspend'),identifier))
+            if bool(existing['suspended'])!=(op=='suspend'):
+                c.execute('UPDATE clients SET suspended=?,rx=0,tx=0,handshake=0 WHERE id=?',(int(op=='suspend'),identifier))
         elif op=='delete':
             c.execute('UPDATE clients SET deleted=1,suspended=1 WHERE id=?',(identifier,))
             profile=pathlib.Path(existing['profile']) if existing['profile'] else None
@@ -198,6 +199,9 @@ def mutate(op, data, sample=True):
             private=command('wg','genkey'); key=command('wg','pubkey',input=private+'\n')
             new_profile=re.sub(r'(?m)^PrivateKey\s*=.*$', 'PrivateKey = '+private,profile.read_text())
             c.execute('UPDATE clients SET public_key=?,rx=0,tx=0,handshake=0 WHERE id=?',(key,identifier))
+            if existing['peer_options']:
+                options=re.sub(r'(?m)^PublicKey\s*=.*$', 'PublicKey = '+key,existing['peer_options'])
+                c.execute('UPDATE clients SET peer_options=? WHERE id=?',(options,identifier))
         elif op=='subscription': plans.change(c,existing,data)
         elif op!='enforce': raise ValueError('Operación no permitida')
         for row in c.execute('SELECT * FROM clients WHERE deleted=0').fetchall():
@@ -324,9 +328,10 @@ def sampler():
             print('Traffic sampling unavailable',flush=True)
 
 if __name__=='__main__':
+    os.umask(0o077);ROOT.mkdir(mode=0o700,exist_ok=True)
+    lock=open(ROOT/'agent.lock','w'); fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     initialize()
     with LOCK: collect();enforce()
-    lock=open(ROOT/'agent.lock','w'); fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     sock=pathlib.Path('/run/gestionvps/agent.sock'); sock.unlink(missing_ok=True)
     server=socketserver.UnixStreamServer(str(sock),Handler)
     os.chown(sock,0,grp.getgrnam('gestionvps').gr_gid); os.chmod(sock,0o660)

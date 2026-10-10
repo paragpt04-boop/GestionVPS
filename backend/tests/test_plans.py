@@ -84,6 +84,14 @@ class Subscriptions(test_agent.Transactions):
         with patch.object(agent,'sync_runtime',side_effect=[RuntimeError('injected'),None]):
             with self.assertRaises(RuntimeError):self.change('assign',plan_id=self.plan)
         self.assertIsNone(self.state()[1]);self.assertEqual(agent.WG.read_text(),original)
+    def test_rotating_blocked_client_does_not_restore_revoked_key(self):
+        self.change('assign',plan_id=self.plan);self.change('cancel')
+        with patch.object(agent,'command',side_effect=['new-private','new-public']):
+            agent.mutate('rotate',{'id':self.id})
+        self.change('assign',plan_id=self.plan)
+        self.assertIn('PublicKey = new-public',agent.WG.read_text())
+        self.assertNotIn('PublicKey = fake-client',agent.WG.read_text())
+        self.assertIn('PresharedKey = fake-test-only',agent.WG.read_text())
     def test_gb_only_renewal_and_time_only_expiry(self):
         quota=agent.dispatch({'op':'plan_create','data':{'name':'GB','quota_bytes':1_000_000}})['id']
         self.change('assign',plan_id=quota)

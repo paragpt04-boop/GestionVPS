@@ -4,9 +4,10 @@ Panel Android nativo (Kotlin, Compose, Android 8.0+) y API HTTPS para administra
 
 ## Arquitectura
 
-- `android/`: interfaz en español, dashboard con consulta cada 15 s, clientes, velocidades, suspensión, renovación de claves, exportación `.conf` mediante el selector de documentos Android, QR local, auditoría y diagnósticos. Sesiones en memoria y pantalla protegida contra capturas.
+- `android/`: interfaz en español, dashboard con consulta cada 15 s, clientes, planes, recargas, renovaciones, velocidades, suspensión, claves, exportación `.conf`, QR local, auditoría y diagnósticos. Sesiones en memoria y pantalla protegida contra capturas.
 - `backend/api.py`: FastAPI sin privilegios, HTTPS en 8443, credenciales administrativas independientes, contraseñas scrypt, tokens opacos con caducidad de una hora, cierre de sesión y limitación persistente de intentos.
-- `backend/agent.py`: agente local privilegiado accesible solo por socket Unix al usuario de la API. Validación estricta, comandos sin shell, SQLite, muestreo cada 15 s, respaldo y journal de reversión antes de cada escritura.
+- `backend/agent.py`: agente local privilegiado accesible solo por socket Unix al usuario de la API. Validación estricta, comandos sin shell, SQLite, muestreo y aplicación de planes cada 5 s, respaldo y journal de reversión antes de modificar WireGuard.
+- `backend/plans.py`: catálogo y contratos persistentes, GB de subida + descarga, días o meses naturales, suspensión automática y calendario fijo de facturación. Ver [reglas y ejemplos](docs/PLANS.md).
 - `backend/qos.py`: HTB por IP en wg0 e ifb-wg0. Acepta el formato original de una IP por línea (2/1 Mbps) y el extendido `IP descarga subida`. Actualiza clases sin destruir toda la cola.
 - SQLite se eligió para un solo VPS y un escritor serializado, con menos consumo y administración que PostgreSQL. No ejecutar múltiples agentes ni trabajadores que escriban directamente en sus archivos.
 
@@ -26,7 +27,7 @@ Las pruebas reales de integración deben usar un cliente temporal y comprobar qu
 ## Límites conocidos
 
 - Los handshakes recientes estiman actividad; WireGuard no mantiene un concepto de sesión conectada.
-- Bytes recibidos por el servidor = subida del cliente; enviados = descarga. Un GB son 1 000 000 000 bytes. No hay cuotas mensuales.
+- Bytes recibidos por el servidor = subida del cliente; enviados = descarga. Un GB son 1 000 000 000 bytes. Los planes limitan por GB, duración o ambos; clientes sin plan siguen sin cuota. La aplicación del corte se comprueba cada 5 s, no por paquete.
 - Historial diario UTC desde la instalación. La primera muestra incluye los contadores actuales de WireGuard; no reconstruye fechas anteriores. Puede perderse tráfico entre una muestra y un reinicio o eliminación externa del peer.
 - Un único administrador en esta versión. Alertas dentro del panel, sin notificaciones push en segundo plano.
 - Perfiles IPv4 como el cliente original. No se anuncia soporte de túnel IPv6 ni bloqueo de fugas IPv6 del dispositivo.

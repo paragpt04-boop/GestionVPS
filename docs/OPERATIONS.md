@@ -21,9 +21,11 @@ Detener `gestionvps-api` y `gestionvps-agent` antes de restaurar. Conservar `/va
 
 Cada operación del agente guarda su propio respaldo bajo `/var/lib/gestionvps-agent/backups/` y un journal de recuperación. Estos respaldos contienen secretos, requieren almacenamiento protegido y política de retención. Si una reversión falla, detener escrituras y recuperar manualmente. No borrar un pending.json sin revisar.
 
-## Prueba de reinicio pendiente de coordinación
+## Prueba de reinicio completada
 
 Registrar servicios, peer jesus y claves mediante hashes (no valores), reglas NAT, clases y filtros. Coordinar ventana con el administrador. Reiniciar únicamente Miami. Al volver, comprobar SSH 443, wg0, wg-qos, agente, API, rutas y forwarding, handshake de un cliente real, IP de salida y velocidades en ambas direcciones. Que una unidad esté habilitada no demuestra que haya sobrevivido un reinicio.
+
+Se completó esta comprobación con autorización el 9 de octubre de 2026; ver VALIDATION.md. La ampliación de planes se probó con reinicio del agente, sin reiniciar otra vez el VPS. Para sus reglas, migración y respaldo específico ver PLANS.md.
 
 ## Certificados y credenciales
 

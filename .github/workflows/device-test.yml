@@ -34,7 +34,7 @@ jobs:
           target: google_apis
           working-directory: android
           script: |
-            gradle --no-daemon connectedDebugAndroidTest
+            gradle --no-daemon -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true connectedDebugAndroidTest
             mkdir -p app/build/reports/androidTests/previews
             adb pull /sdcard/Android/data/com.gestionvps.miami/files/previews/. app/build/reports/androidTests/previews/
       - uses: actions/upload-artifact@v4

@@ -4,7 +4,7 @@ Panel Android nativo (Kotlin, Compose, Android 8.0+) y API HTTPS para administra
 
 ## Arquitectura
 
-- `android/`: interfaz en español, dashboard con consulta cada 15 s, clientes, planes, recargas, renovaciones, velocidades, suspensión, claves, exportación `.conf`, QR local, auditoría y diagnósticos. Sesiones en memoria y pantalla protegida contra capturas.
+- `android/`: interfaz en español, dashboard con consulta cada 5 s, indicadores de actividad junto al menú del cliente, planes, recargas, renovaciones, velocidades, suspensión, claves, exportación `.conf`, QR local, auditoría y diagnósticos. Formularios amplios y GB sin ceros decimales innecesarios. Ver [interfaz y estados](docs/INTERFACE.md). Sesiones en memoria y pantalla protegida contra capturas.
 - `backend/api.py`: FastAPI sin privilegios, HTTPS en 8443, credenciales administrativas independientes, contraseñas scrypt, tokens opacos con caducidad de una hora, cierre de sesión y limitación persistente de intentos.
 - `backend/agent.py`: agente local privilegiado accesible solo por socket Unix al usuario de la API. Validación estricta, comandos sin shell, SQLite, muestreo y aplicación de planes cada 5 s, respaldo y journal de reversión antes de modificar WireGuard.
 - `backend/plans.py`: catálogo y contratos persistentes, GB de subida + descarga, días o meses naturales, suspensión automática y calendario fijo de facturación. Ver [reglas y ejemplos](docs/PLANS.md).

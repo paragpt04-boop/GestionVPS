@@ -9,8 +9,8 @@ Huella SHA-256 del certificado de firma: `30dd2bcf85159b9723b149567ecf9c6d1d3851
 Con JDK 17 y apksigner de Android Build Tools 35.0.0, en un entorno privado:
 
 ```sh
-java -jar apksigner.jar sign --ks /ruta/privada/miami-release.p12 --ks-type PKCS12 --ks-key-alias miami --ks-pass file:/ruta/privada/password.txt --out GestionVPS-0.1.0.apk app-release-unsigned.apk
-java -jar apksigner.jar verify --verbose --print-certs GestionVPS-0.1.0.apk
+java -jar apksigner.jar sign --ks /ruta/privada/miami-release.p12 --ks-type PKCS12 --ks-key-alias miami --ks-pass file:/ruta/privada/password.txt --out GestionVPS-0.2.0.apk app-release-unsigned.apk
+java -jar apksigner.jar verify --verbose --print-certs GestionVPS-0.2.0.apk
 ```
 
 La contraseña se lee del archivo; no introducirla como argumento visible del proceso. La clave de firma Android es diferente de las claves SSH, WireGuard y de la CA HTTPS.

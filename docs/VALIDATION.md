@@ -15,7 +15,9 @@
 
 ## Android
 
-Compilación y pruebas de dispositivo en curso. Consultar las ejecuciones de GitHub Actions y los artefactos publicados; no considerar un APK validado hasta que la ejecución correspondiente termine correctamente. Las pruebas no equivalen a compatibilidad con todos los modelos Android.
+Android 0.2.0, código `84a77832857ce44a79cb0b6415930c3046610838`: [compilación debug/release y lint correctos](https://github.com/paragpt04-boop/GestionVPS/actions/runs/38021001508). [Cuatro pruebas en emulador Android 15 / API 35 correctas](https://github.com/paragpt04-boop/GestionVPS/actions/runs/38021001524): inicio de sesión visible, HTTPS real contra Miami validando CA y hostname, formulario de plan mensual con GB, y acciones de recarga/cancelación de una suscripción agotada. Las pruebas no equivalen a compatibilidad con todos los modelos Android.
+
+El ZIP release descargado coincide con el SHA-256 de Actions: `36d988a27b2f7ea3995df63486369c5f3fb84b97ff822bcbc2d9929fc954c3fd`. Se firmó localmente con la identidad privada de esta instalación; apksigner verificó firmas v2 y v3 y el certificado documentado en SIGNING.md. SHA-256 del APK final `GestionVPS-0.2.0.apk`: `65c709d0babef2188f13110fde2fde300c471e53f578aa21253ec90fe02eafe7`. Las pruebas de emulador se ejecutaron sobre la variante debug del mismo código; no se ha instalado la variante release en el teléfono físico del propietario.
 
 ## Planes, 10 de octubre de 2026 UTC
 
